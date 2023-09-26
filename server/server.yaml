@@ -56,24 +56,30 @@ fileserve:
 #        part). yes = do not close
 
 configurations:
+  zsh:
+    command: 'zsh -l'
+    template: 'terminus.mst'
+    style: 'default.css'
+    settings: 'default.yaml'
+    grace_period: 60
 
   bash:
     command: 'bash -l'
-    template: 'terminus.tpl'
+    template: 'terminus.mst'
     style: 'default.css'
     settings: 'default.yaml'
     grace_period: 60
 
   python:
     command: 'python'
-    template: 'terminus.tpl'
+    template: 'terminus.mst'
     style: 'default.css'
     settings: 'default.yaml'
     grace_period: 60
 
   debug:
     command: 'bash -l'
-    template: 'debug.tpl'
+    template: 'debug.mst'
     style: 'default.css'
     settings: 'default.yaml'
     grace_period: 60

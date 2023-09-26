@@ -1,13 +1,16 @@
 
-var os = require('os')
-var fs = require('fs')
+var os = require('os');
+var fs = require('fs');
+var http = require('http');
 var path = require('path');
-var pty = require('pty.js');
+var pty = require('node-pty');
+
 
 var yaml = require('js-yaml');
 var mustache = require('mustache');
-var express = require('express')
-var sio = require('socket.io')
+var mustacheExpress = require('mustache-express');
+var express = require('express');
+var sio = require('socket.io');
 
 function TTY(command, actions) {
     var self = {};
@@ -15,22 +18,22 @@ function TTY(command, actions) {
     var command = command.split(" ");
     var mypty = pty.spawn(command[0], command.slice(1));
 
-    self.set_window_size = function(nrows, ncols) {
-	mypty.resize(ncols, nrows);
-    }
+    self.set_window_size = function (nrows, ncols) {
+        mypty.resize(ncols, nrows);
+    };
 
-    self.send = function(data) {
-	mypty.write(data);
-    }
+    self.send = function (data) {
+        mypty.write(data);
+    };
 
-    self.send_signal = function(signal) {
+    self.send_signal = function (signal) {
         mypty.kill(signal);
-    }
+    };
 
-    self.terminate = function(signal) {
+    self.terminate = function (signal) {
         self.send_signal(signal);
         mypty.destroy();
-    }
+    };
 
     mypty.on('data', function () {
         actions.data.apply(self, arguments);
@@ -58,11 +61,11 @@ function TTYFactory(settings, actions) {
         term.parent = self;
         term.id = id;
         console.log('Created TTY '
-                    + settings.type
-                    + '#' + id +
-                    '; command = ' + settings.command);
+            + settings.type
+            + '#' + id +
+            '; command = ' + settings.command);
         self[id] = term;
-    }
+    };
 
     self.create = function () {
         while (self[self.id]) {
@@ -70,7 +73,7 @@ function TTYFactory(settings, actions) {
         }
         self.make(self.id);
         return self.id;
-    }
+    };
 
     self.notimeout = function (id) {
         var term = self[id];
@@ -78,9 +81,9 @@ function TTYFactory(settings, actions) {
             clearTimeout(term.timeout);
             term.timeout = null;
         }
-    }
+    };
 
-    self.schedule_terminate = function(id) {
+    self.schedule_terminate = function (id) {
         var term = self[id];
         self.notimeout(id);
         if (settings.grace_period !== true) {
@@ -90,14 +93,14 @@ function TTYFactory(settings, actions) {
             else {
                 term.timeout = setTimeout(function () {
                     if (self[id] === term) {
-                        self.terminate(id)
+                        self.terminate(id);
                     }
                 }, settings.grace_period * 1000);
             }
         }
-    }
+    };
 
-    self.terminate = function(id) {
+    self.terminate = function (id) {
         var term = self[id];
         if (!term) {
             return;
@@ -110,12 +113,12 @@ function TTYFactory(settings, actions) {
         term.terminate();
         delete self[id];
         console.log('Terminated TTY '
-                    + settings.type
-                    + '#' + id +
-                    '; command = ' + settings.command);
-    }
+            + settings.type
+            + '#' + id +
+            '; command = ' + settings.command);
+    };
 
-    self.set_socket = function(id, socket) {
+    self.set_socket = function (id, socket) {
         var term = self[id];
         if (!term) { return; }
         self.notimeout(id);
@@ -127,7 +130,7 @@ function TTYFactory(settings, actions) {
             socket.emit('data', term.backlog.toString());
             term.backlog = "";
         }
-    }
+    };
 
     return self;
 }
@@ -136,8 +139,8 @@ function TTYFactory(settings, actions) {
 var mustache_templater = {
     compile: function (source, options) {
         return function (options) {
-            return mustache.to_html(source, options)
-        }
+            return mustache.render(source, options);
+        };
     },
     render: function (source, options) {
         return this.compile(source, options)(options);
@@ -148,9 +151,9 @@ var mustache_templater = {
 function expand_env(name) {
     name = name.replace('$/', process.env['/']);
     name = name.replace(/\$[A-Za-z_]+/g,
-                        function (match) {
-                            return process.env[match.substring(1)];
-                        });
+        function (match) {
+            return process.env[match.substring(1)];
+        });
     return name;
 }
 
@@ -158,14 +161,15 @@ function expand_env(name) {
 function TerminusServer(settings) {
     var self = {};
 
-    var app = express.createServer();
-    var io = sio.listen(app);
+    var app = express();
+    var server = http.createServer(app);
+    var io = new sio.Server(server);
 
-    var factories = {}
+    var factories = {};
 
-    io.set('log level', 1);
-    app.set("view options", {layout: false});
-    app.register(".tpl", mustache_templater);
+    app.set("view options", { layout: false });
+    app.engine('mst', mustacheExpress());
+    app.set('view engine', 'mst');
 
     self.register_configuration = function (type, cfg) {
         cfg.type = type;
@@ -203,37 +207,39 @@ function TerminusServer(settings) {
                 factory.notimeout(id);
             }
             var client_settings = cfg.settings;
-            if (typeof(client_settings) != "string") {
-                throw "a list of settings is unsupported"
+            if (typeof (client_settings) != "string") {
+                throw "a list of settings is unsupported";
             }
             else {
                 client_settings = '/resources/settings/' + client_settings;
             }
             res.render(path.join(settings.path,
-                                 'page',
-                                 cfg.template),
-                       {termtype: type,
-                        id: id,
-                        magic: 12345678,
-                        style: cfg.style,
-                        settings: client_settings,
-                        server: settings.host,
-                        port: settings.port})
+                'page',
+                cfg.template),
+                {
+                    termtype: type,
+                    id: id,
+                    magic: 12345678,
+                    style: cfg.style,
+                    settings: client_settings,
+                    server: settings.host,
+                    port: settings.port
+                });
         });
-    }
+    };
 
-    process.env.HOSTNAME = os.hostname()
+    process.env.HOSTNAME = os.hostname();
     self.register_filesystem = function (name, mountpoint) {
         name = expand_env(name);
         app.get('/f/' + name + "/*", function (req, res) {
             var file = req.params[0];
-            res.sendfile(file, {root: mountpoint});
+            res.sendfile(file, { root: mountpoint });
             // var fullpath = path.join(mountpoint, file);
             // res.sendfile(fullpath, {root: ""});
             // res.sendfile(fullpath);
         });
         console.log('mounted ' + mountpoint + ' on /' + name);
-    }
+    };
 
     if (settings.fileserve) {
         for (var name in settings.fileserve) {
@@ -242,8 +248,8 @@ function TerminusServer(settings) {
     }
 
     app.get('/resources/*', function (req, res) {
-        var file = req.params[0]
-        res.sendfile(file, {root: settings.path});
+        var file = req.params[0];
+        res.sendfile(file, { root: settings.path });
         // res.sendfile(path.join(settings.path, file));
     });
 
@@ -266,7 +272,7 @@ function TerminusServer(settings) {
         socket.on('setsize', function (data) {
             if (command != null) {
                 console.log('from ' + command + "#" + id + ' -> setsize: ' + data.h + "x" + data.w);
-                factories[command][id].set_window_size(data.h, data.w);
+                factories[command][id]?.set_window_size(data.h, data.w);
             }
         });
 
@@ -283,8 +289,8 @@ function TerminusServer(settings) {
         });
     });
 
-    app.listen(settings.port, settings.host);
-    console.log('Terminus serving on http://' + settings.host + ":" + settings.port)
+    server.listen(settings.port, settings.host);
+    console.log('Terminus serving on http://' + settings.host + ":" + settings.port);
 
     return self;
 }
@@ -297,15 +303,15 @@ function main() {
     var resource_path = process.argv[3];
     if (!settings_file) {
         console.error("Usage: "
-                      + process.argv[0]
-                      + " " + process.argv[1]
-                      + " <server-settings.yaml>");
-        return
+            + process.argv[0]
+            + " " + process.argv[1]
+            + " <server-settings.yaml>");
+        return;
     }
 
     process.env['/'] = settings_dir;
 
-    var settings = yaml.safeLoad(fs.readFileSync(settings_file));
+    var settings = yaml.load(fs.readFileSync(settings_file));
     settings.path = path.resolve(expand_env(resource_path || settings.path));
 
     console.log('resource path: ' + settings.path);

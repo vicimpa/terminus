@@ -2,3 +2,4 @@
 *.pyo
 *~
 doc/_build
+server/node_modules

@@ -1,0 +1,3 @@
+[?0y+h <style>.h{background:red;width:100px;}</style>
+[?0y+h <div class="h"></div>
+[?0y+h <script>setTimeout(()=>document.querySelector('.h').innerHTML += Array.from({length: 10},(_,i) => `<p>Elem ${i}</p>`).join(''))</script>
